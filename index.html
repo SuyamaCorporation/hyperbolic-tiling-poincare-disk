@@ -1,0 +1,387 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Hyperbolic Tiling Poincaré Disk Generator</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-gray-950 text-gray-100 min-h-screen flex flex-col items-center p-4">
+  <h1 class="text-2xl font-bold mb-1 text-amber-300">Hyperbolic Tiling — Poincaré Disk Generator</h1>
+  <p class="text-gray-400 text-sm mb-4">Möbius-transformed hyperbolic {p,q} tilings in the Poincaré disk model</p>
+
+  <div class="flex flex-col lg:flex-row gap-6 w-full max-w-6xl">
+    <div class="flex-1 flex justify-center">
+      <canvas id="canvas" width="580" height="580"
+        class="rounded-full border-4 border-amber-700 bg-black"
+        aria-label="Hyperbolic tiling Poincaré disk canvas"></canvas>
+    </div>
+
+    <div class="lg:w-64 flex flex-col gap-4">
+      <div class="bg-gray-900 rounded-xl p-4 border border-gray-700">
+        <h2 class="text-amber-400 font-semibold mb-3">Tiling Type</h2>
+        <div class="space-y-2" role="group" aria-label="Select tiling pattern">
+          <label class="flex items-center gap-2 cursor-pointer">
+            <input type="radio" name="tiling" value="4,5" checked class="accent-amber-500" aria-label="4 5 tiling" />
+            <span class="text-sm">{4,5} — squares, 5-fold</span>
+          </label>
+          <label class="flex items-center gap-2 cursor-pointer">
+            <input type="radio" name="tiling" value="3,7" class="accent-amber-500" aria-label="3 7 tiling" />
+            <span class="text-sm">{3,7} — triangles, 7-fold</span>
+          </label>
+          <label class="flex items-center gap-2 cursor-pointer">
+            <input type="radio" name="tiling" value="5,4" class="accent-amber-500" aria-label="5 4 tiling" />
+            <span class="text-sm">{5,4} — pentagons, 4-fold</span>
+          </label>
+          <label class="flex items-center gap-2 cursor-pointer">
+            <input type="radio" name="tiling" value="6,4" class="accent-amber-500" aria-label="6 4 tiling" />
+            <span class="text-sm">{6,4} — hexagons, 4-fold</span>
+          </label>
+        </div>
+      </div>
+
+      <div class="bg-gray-900 rounded-xl p-4 border border-gray-700">
+        <h2 class="text-amber-400 font-semibold mb-3">View</h2>
+
+        <label class="block text-sm mb-1" for="depthSlider">
+          Depth: <span id="depthVal" class="font-bold text-amber-300">4</span>
+        </label>
+        <input id="depthSlider" type="range" min="1" max="6" value="4"
+          class="w-full accent-amber-500" aria-label="Tiling depth 1 to 6" />
+
+        <label class="block text-sm mt-3 mb-1" for="rotateSlider">
+          Rotation: <span id="rotateVal" class="font-bold text-amber-300">0°</span>
+        </label>
+        <input id="rotateSlider" type="range" min="0" max="360" value="0"
+          class="w-full accent-amber-500" aria-label="View rotation 0 to 360 degrees" />
+      </div>
+
+      <div class="bg-gray-900 rounded-xl p-4 border border-gray-700">
+        <h2 class="text-amber-400 font-semibold mb-3">Animation</h2>
+        <button id="animBtn"
+          class="w-full bg-amber-700 hover:bg-amber-600 text-white font-semibold py-2 rounded-lg transition"
+          aria-label="Toggle rotation animation">
+          ▶ Animate Rotation
+        </button>
+        <div class="mt-2 text-xs text-gray-400">
+          Tiles drawn: <span id="tileCount">—</span>
+        </div>
+      </div>
+
+      <div class="bg-gray-900 rounded-xl p-4 border border-gray-700">
+        <h2 class="text-amber-400 font-semibold mb-3">Colors</h2>
+        <div class="flex flex-col gap-1 text-xs">
+          <label class="flex items-center gap-2 cursor-pointer">
+            <input type="radio" name="colorMode" value="alternate" checked class="accent-amber-400" />
+            <span>Alternating 2-color</span>
+          </label>
+          <label class="flex items-center gap-2 cursor-pointer">
+            <input type="radio" name="colorMode" value="depth" class="accent-amber-400" />
+            <span>Gradient by depth</span>
+          </label>
+          <label class="flex items-center gap-2 cursor-pointer">
+            <input type="radio" name="colorMode" value="rainbow" class="accent-amber-400" />
+            <span>Rainbow</span>
+          </label>
+        </div>
+      </div>
+
+      <button id="downloadBtn"
+        class="w-full bg-orange-700 hover:bg-orange-600 text-white font-semibold py-2 rounded-lg transition"
+        aria-label="Download as PNG">
+        ⬇ Download PNG
+      </button>
+    </div>
+  </div>
+
+<script>
+(function() {
+  const canvas = document.getElementById('canvas');
+  const ctx = canvas.getContext('2d');
+  const depthSlider = document.getElementById('depthSlider');
+  const depthVal = document.getElementById('depthVal');
+  const rotateSlider = document.getElementById('rotateSlider');
+  const rotateVal = document.getElementById('rotateVal');
+  const animBtn = document.getElementById('animBtn');
+  const tileCount = document.getElementById('tileCount');
+  const downloadBtn = document.getElementById('downloadBtn');
+
+  let animating = false;
+  let animFrame = null;
+  let animAngle = 0;
+  let tilesDrawn = 0;
+
+  // Complex number operations
+  function cadd(a, b) { return [a[0]+b[0], a[1]+b[1]]; }
+  function csub(a, b) { return [a[0]-b[0], a[1]-b[1]]; }
+  function cmul(a, b) { return [a[0]*b[0]-a[1]*b[1], a[0]*b[1]+a[1]*b[0]]; }
+  function cdiv(a, b) {
+    const d = b[0]*b[0]+b[1]*b[1];
+    return [(a[0]*b[0]+a[1]*b[1])/d, (a[1]*b[0]-a[0]*b[1])/d];
+  }
+  function cconj(a) { return [a[0], -a[1]]; }
+  function cabs(a) { return Math.sqrt(a[0]*a[0]+a[1]*a[1]); }
+  function cmulr(a, r) { return [a[0]*r, a[1]*r]; }
+
+  // Möbius transform: T(z) = (z - a) / (1 - conj(a)*z)  [hyperbolic translation]
+  function mobius(z, a) {
+    return cdiv(csub(z, a), csub([1,0], cmul(cconj(a), z)));
+  }
+  function mobiusInv(z, a) {
+    // Inverse: T^{-1}(z) = (z + a) / (1 + conj(a)*z)
+    return cdiv(cadd(z, a), cadd([1,0], cmul(cconj(a), z)));
+  }
+
+  // Rotation in disk
+  function rotate(z, angle) {
+    return cmul(z, [Math.cos(angle), Math.sin(angle)]);
+  }
+
+  // Get vertices of regular p-gon centered at origin in Poincaré disk
+  function getPolygonVertices(p, q, offset) {
+    // Radius of inscribed circle for {p,q} tiling
+    // r = tanh(a/2) where cosh(a) = cos(pi/p)*cos(pi/q) / sin(pi/p)*sin(pi/q) + 1
+    // Simplified formula for the circumradius:
+    const cospp = Math.cos(Math.PI / p);
+    const sinpp = Math.sin(Math.PI / p);
+    const cospq = Math.cos(Math.PI / q);
+    const sinpq = Math.sin(Math.PI / q);
+    // Hyperbolic circumradius: cosh(R) = cos(pi/q) / sin(pi/p)
+    const coshR = cospp / sinpq;
+    if (coshR <= 1) return null;
+    const R = Math.acosh(coshR);
+    const r = Math.tanh(R / 2);
+
+    const verts = [];
+    for (let i = 0; i < p; i++) {
+      const angle = (2 * Math.PI * i / p) + offset;
+      verts.push([r * Math.cos(angle), r * Math.sin(angle)]);
+    }
+    return verts;
+  }
+
+  // Draw a hyperbolic polygon given vertices in Poincaré disk
+  // Uses circular arcs for geodesics
+  function drawHypPolygon(verts, center) {
+    const W = canvas.width, H = canvas.height;
+    const R = Math.min(W, H) / 2 - 4;
+    const cx = W / 2, cy = H / 2;
+
+    function toCanvas(z) {
+      return [cx + z[0] * R, cy + z[1] * R];
+    }
+
+    ctx.beginPath();
+    for (let i = 0; i < verts.length; i++) {
+      const z1 = verts[i];
+      const z2 = verts[(i+1) % verts.length];
+      const p1 = toCanvas(z1);
+      const p2 = toCanvas(z2);
+
+      // Find geodesic between z1 and z2 (circular arc orthogonal to unit circle)
+      // If both points are near origin, use straight line
+      const m1 = cabs(z1), m2 = cabs(z2);
+      if (m1 < 0.001 || m2 < 0.001) {
+        if (i === 0) ctx.moveTo(p1[0], p1[1]);
+        ctx.lineTo(p2[0], p2[1]);
+        continue;
+      }
+
+      // Find center of geodesic circle
+      // Method: invert z1 → z1* = z1/|z1|^2, similarly z2
+      // The geodesic circle passes through z1, z2, z1*, z2* - not exactly but close enough
+      // Simpler: use midpoint approximation with quadratic bezier
+      const midZ = [(z1[0]+z2[0])/2, (z1[1]+z2[1])/2];
+      const midAbs = cabs(midZ);
+      // Push midpoint toward boundary to approximate arc
+      const pushFactor = 1 / (1 - midAbs * midAbs + 0.001);
+      const arcMid = cmulr(midZ, Math.min(pushFactor, 2.0));
+      const arcMidAbs = cabs(arcMid);
+      const clampedArc = arcMidAbs > 0.98 ? cmulr(arcMid, 0.97 / arcMidAbs) : arcMid;
+      const pm = toCanvas(clampedArc);
+
+      if (i === 0) ctx.moveTo(p1[0], p1[1]);
+      ctx.quadraticCurveTo(pm[0], pm[1], p2[0], p2[1]);
+    }
+    ctx.closePath();
+  }
+
+  function getColor(parity, depth, maxDepth, tileIndex) {
+    const colorMode = document.querySelector('input[name="colorMode"]:checked').value;
+    if (colorMode === 'alternate') {
+      if (parity % 2 === 0) return ['#1a3a5c', '#2a5a8c'];
+      else return ['#5c1a1a', '#8c2a2a'];
+    } else if (colorMode === 'depth') {
+      const t = depth / maxDepth;
+      const h = Math.round(240 - t * 180);
+      return [`hsl(${h}, 70%, 30%)`, `hsl(${h}, 70%, 50%)`];
+    } else {
+      const h = (tileIndex * 47) % 360;
+      return [`hsl(${h}, 60%, 30%)`, `hsl(${h}, 70%, 50%)`];
+    }
+  }
+
+  function render() {
+    const W = canvas.width, H = canvas.height;
+    const R = Math.min(W, H) / 2 - 4;
+    const cx = W / 2, cy = H / 2;
+
+    ctx.clearRect(0, 0, W, H);
+    ctx.fillStyle = '#05050a';
+    ctx.fillRect(0, 0, W, H);
+
+    // Draw disk boundary
+    ctx.beginPath();
+    ctx.arc(cx, cy, R, 0, Math.PI * 2);
+    ctx.fillStyle = '#080814';
+    ctx.fill();
+    ctx.strokeStyle = '#444';
+    ctx.lineWidth = 2;
+    ctx.stroke();
+
+    const tilingStr = document.querySelector('input[name="tiling"]:checked').value;
+    const [p, q] = tilingStr.split(',').map(Number);
+    const maxDepth = parseInt(depthSlider.value);
+    const rotAngle = parseInt(rotateSlider.value) * Math.PI / 180;
+
+    tilesDrawn = 0;
+
+    // BFS tiling: start from center polygon, expand via Möbius reflections
+    const epsilon = 0.001;
+    const visited = new Set();
+    const queue = [];
+
+    // Generate center tile
+    const verts0 = getPolygonVertices(p, q, Math.PI / p + rotAngle);
+    if (!verts0) return;
+
+    // Each tile is represented as a Möbius transform (center point)
+    queue.push({ center: [0, 0], verts: verts0, depth: 0, parity: 0, id: 0 });
+    visited.add('0,0');
+
+    let tileIndex = 0;
+    const toProcess = [queue[0]];
+
+    // Precompute translations along each edge
+    function getEdgeMidpoints(verts) {
+      const mids = [];
+      for (let i = 0; i < verts.length; i++) {
+        const z1 = verts[i];
+        const z2 = verts[(i+1) % verts.length];
+        mids.push([(z1[0]+z2[0])/2, (z1[1]+z2[1])/2]);
+      }
+      return mids;
+    }
+
+    // Reflect vertex across geodesic (edge)
+    function reflectAcrossEdge(z, z1, z2) {
+      // Möbius transform to standard position, reflect, transform back
+      // Simplified: translate so z1 is at origin
+      const t = mobius(z, z1);
+      const t2 = mobius(z2, z1);
+      const angle = Math.atan2(t2[1], t2[0]);
+      // Reflect t across the real axis of rotated frame
+      const rotated = rotate(t, -angle);
+      const reflected = [rotated[0], -rotated[1]];
+      const unrotated = rotate(reflected, angle);
+      return mobiusInv(unrotated, z1);
+    }
+
+    // Generate neighbor tile by reflecting across edge i
+    function getNeighbor(verts, edgeIdx) {
+      const z1 = verts[edgeIdx];
+      const z2 = verts[(edgeIdx+1) % verts.length];
+      const newVerts = verts.map(v => reflectAcrossEdge(v, z1, z2));
+      const newCenter = newVerts.reduce((acc, v) => [acc[0]+v[0], acc[1]+v[1]], [0,0]);
+      return { verts: newVerts, center: [newCenter[0]/p, newCenter[1]/p] };
+    }
+
+    let bfsQueue = [...toProcess];
+    const allTiles = [];
+
+    for (let qi = 0; qi < bfsQueue.length && qi < 2000; qi++) {
+      const tile = bfsQueue[qi];
+      allTiles.push(tile);
+      tileIndex++;
+
+      if (tile.depth < maxDepth) {
+        for (let e = 0; e < p; e++) {
+          const { verts: newVerts, center: newCenter } = getNeighbor(tile.verts, e);
+          const nc = newCenter;
+          const dist = cabs(nc);
+          if (dist >= 0.99) continue;
+          const key = `${Math.round(nc[0]*100)},${Math.round(nc[1]*100)}`;
+          if (!visited.has(key)) {
+            visited.add(key);
+            bfsQueue.push({ center: nc, verts: newVerts, depth: tile.depth + 1, parity: tile.parity + e, id: tileIndex });
+          }
+        }
+      }
+    }
+
+    tilesDrawn = allTiles.length;
+    tileCount.textContent = tilesDrawn;
+
+    // Draw all tiles back-to-front (by distance from center)
+    allTiles.sort((a, b) => cabs(b.center) - cabs(a.center));
+
+    for (const tile of allTiles) {
+      const [fill, stroke] = getColor(tile.parity, tile.depth, maxDepth, tile.id);
+      ctx.fillStyle = fill;
+      ctx.strokeStyle = stroke;
+      ctx.lineWidth = 0.8;
+      drawHypPolygon(tile.verts, tile.center);
+      ctx.fill();
+      ctx.stroke();
+    }
+
+    // Draw disk outline again
+    ctx.beginPath();
+    ctx.arc(cx, cy, R, 0, Math.PI * 2);
+    ctx.strokeStyle = '#888';
+    ctx.lineWidth = 2;
+    ctx.stroke();
+  }
+
+  depthSlider.addEventListener('input', () => {
+    depthVal.textContent = depthSlider.value;
+    render();
+  });
+  rotateSlider.addEventListener('input', () => {
+    rotateVal.textContent = rotateSlider.value + '°';
+    render();
+  });
+  document.querySelectorAll('input[name="tiling"]').forEach(r => r.addEventListener('change', render));
+  document.querySelectorAll('input[name="colorMode"]').forEach(r => r.addEventListener('change', render));
+
+  animBtn.addEventListener('click', () => {
+    animating = !animating;
+    if (animating) {
+      animBtn.textContent = '⏹ Stop';
+      function frame() {
+        if (!animating) return;
+        animAngle = (animAngle + 0.3) % 360;
+        rotateSlider.value = animAngle;
+        rotateVal.textContent = Math.round(animAngle) + '°';
+        render();
+        animFrame = requestAnimationFrame(frame);
+      }
+      animFrame = requestAnimationFrame(frame);
+    } else {
+      if (animFrame) cancelAnimationFrame(animFrame);
+      animBtn.textContent = '▶ Animate Rotation';
+    }
+  });
+
+  downloadBtn.addEventListener('click', () => {
+    const link = document.createElement('a');
+    link.download = 'hyperbolic-tiling-poincare.png';
+    link.href = canvas.toDataURL('image/png');
+    link.click();
+  });
+
+  render();
+})();
+</script>
+</body>
+</html>
